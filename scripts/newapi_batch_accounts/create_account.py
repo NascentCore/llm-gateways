@@ -113,6 +113,7 @@ def admin_headers(admin_token: str, admin_user_id: str):
 
 def _admin_request(cfg, method: str, url: str, **kwargs):
     """统一发起管理接口请求：优先使用 Session（Cookie），否则使用 Bearer token。Session 模式下也需带 New-Api-User。"""
+    timeout = kwargs.pop("timeout", 30)
     user_id = cfg.get("admin_user_id")
     if cfg.get("admin_session") is not None:
         session = cfg["admin_session"]
@@ -121,13 +122,13 @@ def _admin_request(cfg, method: str, url: str, **kwargs):
         headers.setdefault("Content-Type", "application/json")
         headers.setdefault("New-Api-User", str(user_id))
         kwargs["headers"] = headers
-        return session.request(method, url, timeout=30, **kwargs)
+        return session.request(method, url, timeout=timeout, **kwargs)
     token = cfg.get("admin_token")
     if "headers" in kwargs:
         kwargs["headers"].update(admin_headers(token, user_id))
     else:
         kwargs["headers"] = admin_headers(token, user_id)
-    return requests.request(method, url, timeout=30, **kwargs)
+    return requests.request(method, url, timeout=timeout, **kwargs)
 
 
 def search_users(cfg: dict, keyword: str, page: int = 1, page_size: int = SEARCH_PAGE_SIZE):

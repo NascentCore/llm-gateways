@@ -2,8 +2,10 @@
 # 官方基准: https://github.com/QuantumNous/new-api/blob/main/docker-compose.yml
 # 官方说明: https://github.com/QuantumNous/new-api-docs/blob/main/docs/en/installation/docker-compose-yml.md
 #
-# 与官方差异：增加 mock（仅容器内 8000）、nginx（对外 80/443）、new-api 不映射宿主机 3000；
+# 与官方差异：可选 mock（profile benchmark，仅容器内 8000）、nginx（对外 80/443）、new-api 不映射宿主机 3000；
 # 增加 FRONTEND_BASE_URL；资源使用 mem_limit/cpus（Compose 单机可生效）。
+# 默认不启动 mock：docker compose up -d --build
+# 压测需 mock：COMPOSE_PROFILES=benchmark docker compose up -d --build
 #
 # 使用前：cp .env.example .env 并填写 DOMAIN / LETSENCRYPT_EMAIL / POSTGRES_PASSWORD
 # 启动：./scripts/bootstrap.sh && docker compose up -d --build
@@ -32,7 +34,6 @@ services:
     depends_on:
       - redis
       - postgres
-      - mock
     networks:
       - new-api-network
     mem_limit: 3g
@@ -44,6 +45,8 @@ services:
       retries: 3
 
   mock:
+    profiles:
+      - benchmark
     build:
       context: ../mock
       dockerfile: Dockerfile

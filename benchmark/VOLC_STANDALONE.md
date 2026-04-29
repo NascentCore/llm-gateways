@@ -1,6 +1,6 @@
 # 火山引擎单机（4c8g）NewAPI + Mock + Nginx + Locust 压测
 
-本文档面向 **一台** 火山引擎 ECS（建议 **4 核 8G**，Ubuntu 22.04 或等价），在同一台机器上用 Docker Compose 运行：NewAPI（对齐[官方 docker-compose](https://github.com/QuantumNous/new-api/blob/main/docker-compose.yml)）+ PostgreSQL + Redis、**仅内网可达**的 Mock 上游、对外 **Nginx（Let’s Encrypt HTTPS）**，并在宿主机运行 Locust 采集指标。
+本文档面向 **一台** 火山引擎 ECS（建议 **4 核 8G**，Ubuntu 22.04 或等价），在同一台机器上用 Docker Compose 运行：NewAPI（对齐[官方 docker-compose](https://github.com/QuantumNous/new-api/blob/main/docker-compose.yml)）+ PostgreSQL + Redis、对外 **Nginx（Let’s Encrypt HTTPS）**。**Mock** 为可选（Compose `profile: benchmark`），仅压测场景需要；**Locust** 在宿主机单独安装，见文末。
 
 ---
 
@@ -10,7 +10,7 @@
 | ------------------ | ----------------- | ---------------------------------------------------------------------- |
 | Nginx              | 公网 **80 / 443** | TLS 终结，反代 NewAPI；大 body / 长读超时已配置                        |
 | NewAPI             | 仅容器网 **3000** | 不映射宿主机端口，避免误暴露                                           |
-| Mock               | 仅容器网 **8000** | NewAPI 渠道填 `http://mock:8000`，公网不可达                           |
+| Mock（可选）       | 仅容器网 **8000** | 默认不启动；压测时 `COMPOSE_PROFILES=benchmark`；渠道填 `http://mock:8000` |
 | PostgreSQL / Redis | 内网              | 与官方栈一致                                                           |
 | Locust             | **宿主机**        | 建议 `NEWAPI_BASE_URL=https://你的域名`，走与真实用户一致的 HTTPS 路径 |
 
@@ -28,7 +28,16 @@ chmod +x volc-standalone/scripts/pack.sh
 ./volc-standalone/scripts/pack.sh
 ```
 
-后续等将生成的 `volc-benchmark-*.tar.gz` 上传到机器上，例如：
+**仅部署 NewAPI（无 mock、无 locust 目录）** 时可用：
+
+```bash
+chmod +x volc-standalone/scripts/pack-newapi-only.sh
+./volc-standalone/scripts/pack-newapi-only.sh
+```
+
+生成 `volc-newapi-only-*.tar.gz`，解压后只需 `volc-standalone/` 与文档，无需同级 `mock/`。
+
+后续将生成的 `volc-benchmark-*.tar.gz`（或 `volc-newapi-only-*.tar.gz`）上传到机器上，例如：
 
 ```bash
 scp volc-benchmark-20260415_110417.tar.gz root@{公网IP}:/root/
@@ -137,7 +146,11 @@ cp .env.example .env
 # 等价于：若无 active.conf 则 bootstrap；然后 docker compose up -d --build
 ```
 
-构建 **Mock** 需要同级的 `../mock` 目录（解压包已按此布局）。
+默认 **不** 启动 Mock（无需 `../mock`）。若需压测 Mock，解压须保留 `mock/` 与相对路径，并执行：
+
+```bash
+COMPOSE_PROFILES=benchmark docker compose up -d --build
+```
 
 查看状态：
 
@@ -167,7 +180,7 @@ docker compose logs -f new-api
 浏览器打开：`https://<DOMAIN>`，按提示完成初始化：
 ![](./VOLC_STANDALONE.md/2026-04-15-13-02-09.png)
 
-1. **渠道**：新增 **OpenAI 兼容**（或 Custom），**基础 URL** 填 `http://mock:8000`（不要加 `/v1`），API Key 可填占位（如 `mock`），模型名与压测一致，例如 `mock-model`，保存并启用。
+1. **渠道**：新增 **OpenAI 兼容**（或 Custom），**基础 URL** 填你的真实上游（如 OpenAI / 中转 / 自建兼容端点）。若已按上文启用 **Mock** 压测栈，可填 `http://mock:8000`（不要加 `/v1`），API Key 可填占位（如 `mock`），模型名与压测一致，例如 `mock-model`，保存并启用。
    ![](./VOLC_STANDALONE/2026-04-15-13-13-17.png)
 
    ![](./VOLC_STANDALONE//2026-04-15-13-07-11.png)
@@ -242,9 +255,9 @@ python3 summarize_run.py
 
 - 安全组已放行 22 / 80 / 443；公网 IP 绑定正确。
 - Namecheap **A 记录** 指向该公网 IP，`dig` 解析正确。
-- `docker compose ps` 中 `new-api`、`mock-openai`、`benchmark-nginx`、`postgres`、`redis` 均为 Up。
+- `docker compose ps` 中 `new-api`、`benchmark-nginx`、`postgres`、`redis` 均为 Up（使用 Mock 压测时另见 `mock-openai`）。
 - `https://<DOMAIN>` 证书有效，管理端可登录。
-- 渠道基础 URL 为 `http://mock:8000`，模型名与 Locust 一致。
+- 渠道基础 URL 指向实际上游（Mock 场景下为 `http://mock:8000`，模型名与 Locust 一致）。
 - `curl` 调用 `POST /v1/chat/completions` 成功。
 - Locust 运行结束；`report_*_stats.csv` 中有多条 `/v1/chat/completions in=… out=…`；失败率可接受。
 
@@ -263,7 +276,7 @@ python3 summarize_run.py
 
 | 路径                                                                           | 说明                                      |
 | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| [volc-standalone/docker-compose.yml](volc-standalone/docker-compose.yml)       | 合并栈（官方 NewAPI + DB + Mock + Nginx） |
+| [volc-standalone/docker-compose.yml](volc-standalone/docker-compose.yml)       | 合并栈（官方 NewAPI + DB + Nginx；Mock 为 profile `benchmark`） |
 | [volc-standalone/.env.example](volc-standalone/.env.example)                   | 环境变量模板                              |
 | [volc-standalone/nginx/](volc-standalone/nginx/)                               | HTTP / HTTPS 配置模板                     |
 | [volc-standalone/scripts/bootstrap.sh](volc-standalone/scripts/bootstrap.sh)   | 初始化目录与 HTTP 版 Nginx                |
