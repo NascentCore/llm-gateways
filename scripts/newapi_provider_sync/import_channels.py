@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 读取 vendor_models_official_catalog.json，按各厂商 release_rank 取 Top2 模型，
-通过 NewAPI 管理接口 POST /api/channel/ 创建渠道（幂等：默认跳过已存在同名渠道）；
+通过 NewAPI 管理接口 POST /api/channel/ 创建渠道（幂等：默认跳过已存在同名渠道；加 --update-channels 则对已存在渠道 PUT 更新 models 等）；
 若模型在目录中带 pricing，则向 PUT /api/option/ 合并写入 ModelRatio / CompletionRatio 等
 （需 Root 权限，可用 NEWAPI_ROOT_* 或与普通管理员同账号的 Root 用户）。
 
@@ -365,6 +365,74 @@ def _find_channel_by_name(cfg: dict, channel_name: str) -> dict | None:
     return None
 
 
+def _get_channel_by_id(cfg: dict, channel_id: int) -> dict | None:
+    """GET /api/channel/:id，返回 data 对象（dict）。"""
+    base = cfg["base_url"].rstrip("/")
+    r = ca._admin_request(cfg, "GET", f"{base}/api/channel/{int(channel_id)}")
+    if r.status_code != 200:
+        print(f"[warn] 获取渠道失败 HTTP {r.status_code}: {r.text[:500]}", file=sys.stderr)
+        return None
+    data = r.json()
+    if not data.get("success"):
+        return None
+    d = data.get("data")
+    return d if isinstance(d, dict) else None
+
+
+def _merge_channel_payload(
+    server: dict,
+    *,
+    name: str,
+    channel_type: int,
+    base_url: str,
+    models_csv: str,
+    groups: list,
+    priority: int,
+    weight: int,
+    key_from_env: str | None,
+) -> dict:
+    """
+    以 GET 全量为基底，覆盖目录中的 name/type/base_url/models 等。
+    若 key_from_env 为空则从 payload 中移除 key，避免 PUT 把线上密钥清空（GET 常不返回明文 key）。
+    """
+    merged = json.loads(json.dumps(server))
+    merged["name"] = name
+    merged["type"] = int(channel_type)
+    merged["base_url"] = (base_url or "").strip()
+    merged["models"] = models_csv
+    merged["groups"] = list(groups)
+    merged["priority"] = int(priority)
+    merged["weight"] = int(weight)
+    merged.pop("key", None)
+    if key_from_env:
+        merged["key"] = key_from_env
+    return merged
+
+
+def _redact_channel_for_print(obj: dict) -> dict:
+    safe = json.loads(json.dumps(obj))
+    if isinstance(safe.get("key"), str) and safe["key"]:
+        safe["key"] = "<redacted>"
+    return safe
+
+
+def _put_channel(cfg: dict, payload: dict, dry_run: bool) -> bool:
+    """PUT /api/channel/，body 为顶层 channel 字段（含 id）。"""
+    if dry_run:
+        print(json.dumps(_redact_channel_for_print(payload), ensure_ascii=False, indent=2))
+        return True
+    base = cfg["base_url"].rstrip("/")
+    r = ca._admin_request(cfg, "PUT", f"{base}/api/channel/", json=payload, timeout=60)
+    if r.status_code != 200:
+        print(f"更新渠道失败 HTTP {r.status_code}: {r.text}", file=sys.stderr)
+        return False
+    data = r.json()
+    if not data.get("success"):
+        print(f"更新渠道失败: {data.get('message', r.text)}", file=sys.stderr)
+        return False
+    return True
+
+
 def _post_channel(cfg: dict, body: dict, dry_run: bool) -> bool:
     if dry_run:
         print(json.dumps(body, ensure_ascii=False, indent=2))
@@ -466,6 +534,11 @@ def main() -> int:
         help="不访问 NewAPI：仅根据目录打印拟创建的渠道 JSON（密钥用占位符，无需管理员账号）",
     )
     ap.add_argument("--force", action="store_true", help="若已存在同名渠道仍尝试创建（可能失败）")
+    ap.add_argument(
+        "--update-channels",
+        action="store_true",
+        help="若已存在同名渠道则 GET 全量后 PUT 更新（models/base_url/type 等）；未设置上游密钥环境变量时不改 key。与 --force 二选一为宜。",
+    )
     ap.add_argument("--top", type=int, default=2, help="每厂商取模型数（默认 2）")
     ap.add_argument(
         "--skip-pricing",
@@ -583,8 +656,55 @@ def main() -> int:
     ok_all = True
     for p in catalog.get("providers") or []:
         ch_name = p["channel_name"]
+        model_ids = _top_model_ids(p.get("models") or [], top_n)
+        if len(model_ids) < top_n:
+            print(f"[warn] {p['id']} 模型不足 {top_n} 个，仅有: {model_ids}", file=sys.stderr)
+
+        if args.fail_on_pricing and not args.skip_pricing and not pricing_write_ok:
+            return 3
+
         if cfg is not None and not args.force and not args.offline:
             existing = _find_channel_by_name(cfg, ch_name)
+            if existing and args.update_channels:
+                cid = existing.get("id")
+                if cid is None:
+                    print(f"[warn] 无法更新渠道（无 id）: {ch_name}", file=sys.stderr)
+                    ok_all = False
+                    continue
+                key_env = _resolve_api_key(p)
+                if args.dry_run and not key_env:
+                    key_env = f"<{p.get('env_key_name', 'API_KEY')}>"
+                key_for_put: str | None = None
+                if key_env and not str(key_env).startswith("<"):
+                    key_for_put = str(key_env).strip()
+                full = _get_channel_by_id(cfg, int(cid))
+                if full is None:
+                    ok_all = False
+                    continue
+                merged = _merge_channel_payload(
+                    full,
+                    name=ch_name,
+                    channel_type=int(p["newapi_channel_type"]),
+                    base_url=(p.get("default_base_url") or "").strip(),
+                    models_csv=",".join(model_ids),
+                    groups=["default"],
+                    priority=0,
+                    weight=1,
+                    key_from_env=key_for_put,
+                )
+                tag = "[dry-run] " if args.dry_run else ""
+                print(
+                    f"{tag}更新渠道: {ch_name} id={cid} type={p['newapi_channel_type']} "
+                    f"models={merged.get('models')} key={'已覆盖' if key_for_put else '保留线上'}"
+                )
+                if args.dry_run:
+                    print(
+                        "[dry-run] 拟 PUT /api/channel/ 体（密钥已打码）:",
+                        json.dumps(_redact_channel_for_print(merged), ensure_ascii=False, indent=2),
+                    )
+                if not _put_channel(cfg, merged, args.dry_run):
+                    ok_all = False
+                continue
             if existing:
                 print(f"跳过（已存在）: {ch_name} id={existing.get('id')}")
                 continue
@@ -598,13 +718,6 @@ def main() -> int:
             print(f"跳过（未设置密钥环境变量）: {p['id']} env={p.get('env_key_name')}", file=sys.stderr)
             ok_all = False
             continue
-
-        model_ids = _top_model_ids(p.get("models") or [], top_n)
-        if len(model_ids) < top_n:
-            print(f"[warn] {p['id']} 模型不足 {top_n} 个，仅有: {model_ids}", file=sys.stderr)
-
-        if args.fail_on_pricing and not args.skip_pricing and not pricing_write_ok:
-            return 3
 
         body = {
             "mode": "single",

@@ -5,7 +5,7 @@
 | 文件 | 作用 |
 |------|------|
 | `vendor_models_official_catalog.json` | 各厂商**官网文档链接**、`model_id`、`release_rank`、定价摘录或说明（**不**引用仓库内其它价格 JSON）。 |
-| `import_channels.py` | 管理员登录后调用 `POST /api/channel/` 按目录创建渠道；每家按 `release_rank` 降序取前 2 个模型写入 `models`。 |
+| `import_channels.py` | 管理员登录后按目录创建渠道（`POST /api/channel/`）；可选 `--update-channels` 对已存在同名渠道 `GET`+`PUT /api/channel/` 同步 `models`/`base_url`/`type` 等；倍率见脚本 `--help`。 |
 | `requirements.txt` | 仅依赖 `requests`（与 `newapi_batch_accounts` 一致）。 |
 
 ## 环境变量
@@ -18,7 +18,7 @@
 | `NEWAPI_ADMIN_USERNAME` | 管理员用户名 |
 | `NEWAPI_ADMIN_PASSWORD` | 管理员密码 |
 
-### 各上游密钥（缺一则跳过该厂商渠道）
+### 各上游密钥（缺一则跳过该厂商「新建」渠道；`--update-channels` 时仍可更新模型列表，仅在不改 key 时不必设）
 
 | 厂商 | 变量 |
 |------|------|
@@ -53,7 +53,13 @@ python import_channels.py --dry-run
 
 # 实际创建（已存在同名渠道则跳过，除非加 --force）
 python import_channels.py
+
+# 已存在同名渠道时：同步目录中的 models/base_url/type（先跑倍率再更新渠道；未 export 上游 key 则不改线上密钥）
+python import_channels.py --update-channels
+python import_channels.py --dry-run --update-channels
 ```
+
+说明：`--force` 仍会尝试对已存在名再 `POST`（易失败），与「更新」场景一般二选一；`--update-channels` 使用 `PUT /api/channel/` 且以 `GET /api/channel/:id` 全量为基底合并，避免清空 `channel_info` 等字段。
 
 ## 与 NewAPI 版本的约定
 

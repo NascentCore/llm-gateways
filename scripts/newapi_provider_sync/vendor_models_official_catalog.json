@@ -395,21 +395,17 @@
       ],
       "models": [
         {
-          "model_id": "ernie-4.0-turbo-8k-latest",
-          "release_rank": 300,
+          "model_id": "ernie-4.5-0.3b",
+          "release_rank": 340,
           "pricing": {
             "currency": "CNY",
             "unit": "per_million_tokens",
-            "notes": "以千帆/文心工作台当前「模型服务 / 计费」公示为准；模型 ID 以调用接口所列为准。"
-          }
-        },
-        {
-          "model_id": "ernie-speed-128k",
-          "release_rank": 280,
-          "pricing": {
-            "currency": "CNY",
-            "unit": "per_million_tokens",
-            "notes": "同上"
+            "input": 0.1,
+            "output": 0.4,
+            "context_window_tokens": 120000,
+            "output_max_tokens": 8000,
+            "notes": "接入点 ID `ernie-4.5-0.3b`，接口 `/v2/chat/completions`；刊例为推理输入/输出（元/千 tokens）换算为元/百万。限流等以控制台为准。",
+            "source": "百度智能云千帆控制台 ERNIE-4.5-0.3b 产品页（服务定价），摘录日 2026-04-28"
           }
         }
       ]
@@ -490,29 +486,44 @@
       ],
       "models": [
         {
-          "model_id": "deepseek-ai/DeepSeek-V2-Chat",
-          "release_rank": 300,
+          "model_id": "deepseek-ai/DeepSeek-V4-Flash",
+          "release_rank": 320,
           "pricing": {
             "currency": "CNY",
             "unit": "per_million_tokens",
-            "list_price_yuan_per_million_tokens": 1.33,
-            "context_length": "32K",
-            "billing_rule": "平台按 Input 与 Output 的 Token 总量计费：费用 = Token 消耗量 × 模型单价；优先扣减赠送额度。",
-            "notes": "示例表价格；硅基保留调价权，以控制台「模型价格」与账单为准。",
-            "source": "https://docs.siliconflow.com/cn/faqs/billing-rules（价格说明示例表），摘录日 2026-04-28"
+            "input": 1.0,
+            "output": 2.0,
+            "context_window_tokens": 1048576,
+            "notes": "硅基控制台「在线推理」刊例为 ¥/K Tokens：输入 0.001、输出 0.002；本表按 ×1000 换算为元/百万 tokens。超过 32k 输入等分档若有差异以 cloud.siliconflow.cn 为准。",
+            "source": "硅基流动控制台模型页 deepseek-ai/DeepSeek-V4-Flash（在线推理），摘录日 2026-04-28"
           }
         },
         {
-          "model_id": "deepseek-ai/DeepSeek-Coder-V2-Instruct",
-          "release_rank": 295,
+          "model_id": "Pro/zai-org/GLM-5.1",
+          "release_rank": 310,
           "pricing": {
             "currency": "CNY",
             "unit": "per_million_tokens",
-            "list_price_yuan_per_million_tokens": 1.33,
-            "context_length": "32K",
-            "billing_rule": "同上。",
-            "notes": "与 DeepSeek-V2-Chat 同页示例表；若你仅需单模型渠道，可删本条目。",
-            "source": "https://docs.siliconflow.com/cn/faqs/billing-rules"
+            "input": 6.0,
+            "output": 24.0,
+            "cache_read": 1.3,
+            "context_window_tokens": 32000,
+            "tiers_by_prompt_tokens": [
+              {
+                "range": "[0, 32k)",
+                "input_per_million_tokens": 6,
+                "output_per_million_tokens": 24,
+                "cache_read_per_million_tokens": 1.3
+              },
+              {
+                "range": "[32k, +∞)",
+                "input_per_million_tokens": 8,
+                "output_per_million_tokens": 28,
+                "cache_read_per_million_tokens": 2.0
+              }
+            ],
+            "notes": "官网按输入上下文分档，刊例为 ¥/K Tokens；首档 [0,32k)：输入 0.006、输出 0.024、命中缓存 0.0013；第二档 [32k,+∞)：0.008 / 0.028 / 0.002。导入脚本对阶梯价取首档写入倍率。",
+            "source": "硅基流动控制台 Pro/zai-org/GLM-5.1（pro/zai-org/glm-5.1）在线推理定价表，摘录日 2026-04-28"
           }
         }
       ]
