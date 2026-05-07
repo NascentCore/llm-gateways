@@ -56,3 +56,34 @@ python test_channel_models_compat.py --only anthropic --channel-ids 1
 
 - `0`：已执行的探测均 `success`，且未使用 `--strict` 或不存在因类型跳过的渠道。
 - `1`：任一探测失败，或 `--strict` 且存在因类型跳过的渠道。
+
+---
+
+## 用户 Key 逐模型全量验证（`run_per_model_user_gateway_validation.py`）
+
+对已确认在管理端「OpenAI + Anthropic」探测均通过的模型，使用**用户 API Key**经网关依次执行：`test_chat.py`（openai / anthropic）、usage 采样、`rpm_until_limit`（heavy，峰值并发 16）、`rpm_minute_window_probe`（batch + minimal，256×4096）。与上文本脚本的差别：走 **`/v1/chat/completions` 与 `/v1/messages`**，不按渠道 ID 调用管理端 test。
+
+**费用与耗时**：默认 **10 个模型**，每模型约 **31 + 4096** 次压力请求（另加若干次连通性调用），总调用量可达 **4 万+** 次量级；务必确认预算与配额。
+
+**环境**（仓库根目录、已安装 `openai` / `anthropic` / `tiktoken` 的 Python 环境）：
+
+```bash
+export NEWAPI_API_KEY='...'   # 勿提交仓库、勿贴聊天
+export NEWAPI_BASE_URL=https://llm.sxwl.ai/v1   # 可选，脚本有默认
+
+# 仅打印将执行的命令，不写 docs、不写 summary
+python scripts/newapi_channel_model_compat/run_per_model_user_gateway_validation.py --dry-run
+
+# 全量（自定义日志根目录，便于从跳板机 scp 拉回）
+python scripts/newapi_channel_model_compat/run_per_model_user_gateway_validation.py \
+  --output-dir /tmp/sxwl_per_model_run
+
+# 子集模型
+python scripts/newapi_channel_model_compat/run_per_model_user_gateway_validation.py \
+  --models glm-5.1,hunyuan-pro \
+  --output-dir /tmp/sxwl_subset
+```
+
+**在远端执行（示例）**：先 `rsync` 本仓到目标机 `~/llm_gateways`，再经你环境中的 `ssh gateway` / `ssh -J gateway ...` 登录到能访问 `llm.sxwl.ai` 的机器，在远端 `cd ~/llm_gateways && source .venv/bin/activate`，设置 `NEWAPI_API_KEY` 后运行同上命令。原始日志在 `--output-dir` 下按模型分子目录；Markdown 默认写入仓库 `docs/newapi-sxwl-per-model-validation-<本地日期>.md`（可用 `--report` 覆盖）。
+
+**可选**：`--skip-heavy` / `--skip-minute` 跳过对应压力段；`--continue-on-error` 在某步失败后仍尝试后续步骤。
