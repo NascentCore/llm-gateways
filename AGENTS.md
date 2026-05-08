@@ -24,6 +24,10 @@ This file provides practical guidance for coding agents working in this reposito
   Batch NewAPI account creation tooling.
 - `docs/newapi-pricing-and-models.md`  
   NewAPI 模型计费、配额、渠道模型列表/映射与补全倍率说明（中文）。
+- `scripts/run_dual_overlap_rpm_probe.sh` + `scripts/merge_dual_rpm_probe_window.py`  
+  在目标机对任意 OpenAI 兼容 `model` 跑双进程 `rpm_minute_window_probe`（overlap）并合并锚点前 60s 发起数；见 `docs/newapi-mixroute-validation-2026-05-06.md` §6.2。
+- `scripts/stream_concurrency_ttft_probe.py`  
+  单模型、`stream=True`、Semaphore 限制并发（默认 50→100），测 TTFT 与流式总耗时；四模型分四次各传 `--model`，见 `docs/newapi-mixroute-validation-2026-05-06.md` §6.5。
 - `benchmark/`  
   End-to-end load testing assets and operation docs.
 
@@ -57,6 +61,18 @@ python test_chat.py \
 Notes:
 - You must provide at least one model (`--models` / `-m`).
 - API key can also come from `NEWAPI_API_KEY` or `OPENAI_API_KEY`.
+
+### 1b) Stream TTFT / concurrency (single model per run)
+
+```bash
+export NEWAPI_BASE_URL="https://api.mixroute.ai/v1"
+export NEWAPI_API_KEY="..."
+.venv/bin/python scripts/stream_concurrency_ttft_probe.py \
+  --model gemini-3-flash-preview \
+  --jsonl-out /tmp/stream_ttft_gemini-3-flash-preview.jsonl
+```
+
+Repeat with a different `--model` for each of the four models; defaults: `--input-tokens 4096`, `--max-tokens 512`, `--concurrency-list 50,100`, `--samples 100`.
 
 ### 2) Fetch OpenRouter models by provider
 
