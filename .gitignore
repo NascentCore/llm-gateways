@@ -4,6 +4,9 @@
 # Env (use .env.example as template)
 .env
 
+# 本地暂存（TOS 上传前 scp 目录，勿提交）
+tos_staging/
+
 *.pyc
 
 .venv
